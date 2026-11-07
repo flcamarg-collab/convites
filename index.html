@@ -257,6 +257,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
       <div class="list" id="evtInfo"></div>
       <div class="btns"><button class="btn ghost" id="btnPrevia">Ver prévia do convite</button><button class="btn ghost" id="btnSair">Sair / trocar PIN</button></div>
       <p class="small muted" id="roleInfo" style="margin:10px 0 0"></p>
+      <p class="small muted" style="margin:4px 0 0">Versão do aplicativo: 3</p>
     </div>
     <div class="card">
       <h2>Como usar no dia</h2>
@@ -277,6 +278,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
   <p class="muted small" style="margin:6px 0 16px">Digite o PIN que a coordenação passou para você.</p>
   <input class="t" id="pinInput" type="password" inputmode="numeric" placeholder="PIN" style="text-align:center;font-size:24px;letter-spacing:6px">
   <button class="btn red block" id="loginBtn" style="margin-top:12px">Entrar</button>
+  <p class="small muted" style="margin:14px 0 0">Versão 3</p>
   <p class="small" id="loginMsg" style="color:var(--red);min-height:1.2em;margin:10px 0 0"></p>
 </form></div>
 <!-- Modal de convites -->
@@ -522,11 +524,11 @@ function waMessage(invs) {
   const primeiroNome = (first.comprador || first.nome || "").split(" ")[0];
   const linhas = invs.map(c => `• Nº ${pad3(c.numero)} – ${c.nome} (${tipoNome(c.tipo)}) – código ${fmtCode(c.codigo)}`).join("\n");
   const plural = invs.length > 1;
-  return `Olá, ${primeiroNome}! 🙏\n\n` +
+  return `Olá, ${primeiroNome}!\n\n` +
     `${plural ? "Seus convites estão confirmados" : "Seu convite está confirmado"} para o *${cfg.nome}*.\n\n` +
-    `📅 ${cfg.dia}, ${cfg.data}\n🕛 ${cfg.hora}\n📍 ${cfg.local}\n\n` +
-    `🎟️ ${plural ? "Convites" : "Convite"}:\n${linhas}\n\n` +
-    `Vou enviar ${plural ? "as imagens dos convites" : "a imagem do convite"} com o QR code. ` +
+    `*Data:* ${cfg.dia}, ${cfg.data}\n*Horário:* ${cfg.hora}\n*Local:* ${cfg.local}\n\n` +
+    `*${plural ? "Convites" : "Convite"}:*\n${linhas}\n\n` +
+    `${plural ? "Seguem os convites" : "Segue o convite"} com QR code. ` +
     `Apresente o QR code na entrada – cada um vale para *1 pessoa* e só pode ser usado *uma vez*.\n` +
     `Bebidas são vendidas à parte.\n\n${cfg.recado}\n${cfg.comunidade}`;
 }
@@ -662,31 +664,34 @@ async function openPedido(invs, opts = {}) {
   const first = invs[0];
   const msg = waMessage(invs);
   const waHref = `https://wa.me/${waNumber(first.telefone)}?text=${encodeURIComponent(msg)}`;
+  const plural = invs.length > 1;
   sheet.onclick = null;
   sheet.innerHTML = `
     <button class="x" aria-label="Fechar">×</button>
-    <h3>${opts.title || (invs.length > 1 ? invs.length + " convites gerados" : "Convite gerado")}</h3>
-    <p class="muted small" style="margin:4px 0 0">${esc(first.comprador || first.nome)} · ${esc(fmtFone(first.telefone))}</p>
-    <ol class="steps">
-      <li>Toque em <b>Abrir conversa no WhatsApp</b> e envie a mensagem.</li>
-      <li>Volte aqui e toque em <b>Enviar imagem</b> em cada convite → escolha o WhatsApp → a mesma conversa.</li>
-    </ol>
-    <div class="btns"><a class="btn wa" href="${esc(waHref)}" target="_blank" rel="noopener">Abrir conversa no WhatsApp</a><button class="btn ghost" data-act="copytxt">Copiar mensagem</button></div>
+    <h3>${opts.title || (plural ? invs.length + " convites gerados" : "Convite gerado")}</h3>
+    <p class="muted small" style="margin:4px 0 12px">${esc(first.comprador || first.nome)} · ${esc(fmtFone(first.telefone))}</p>
+    <button class="btn wa block" id="btnShareAll" disabled style="padding:16px;font-size:17px">Preparando ${plural ? "convites" : "convite"}…</button>
+    <p class="small muted" id="shareHint" style="margin:8px 2px 0">Toque, escolha o <b>WhatsApp</b> e a conversa de ${esc((first.comprador || first.nome).split(" ")[0])}. ${plural ? "As imagens e a mensagem vão juntas." : "A imagem e a mensagem vão juntas."}</p>
+    <details style="margin-top:12px"><summary class="small" style="cursor:pointer;color:var(--navy);font-weight:600">Outras formas de enviar</summary>
+      <div class="btns"><a class="btn ghost sm" href="${esc(waHref)}" target="_blank" rel="noopener">Abrir conversa só com a mensagem</a><button class="btn ghost sm" data-act="copytxt">Copiar mensagem</button></div>
+      <p class="small muted" style="margin:8px 0 0">Cada convite abaixo também tem botões para enviar, baixar ou copiar a imagem separadamente.</p>
+    </details>
     <div class="invgrid">${invs.map(c => `<div class="inv" data-id="${c.codigo}"><div class="muted small" style="padding:40px 0;text-align:center">Gerando imagem…</div></div>`).join("")}</div>`;
   modal.classList.add("show");
   sheet.querySelector(".x").onclick = closeModal;
   sheet.querySelector('[data-act="copytxt"]').onclick = async () => {
     try { await navigator.clipboard.writeText(msg); toast("Mensagem copiada."); } catch { toast("Não foi possível copiar neste aparelho."); }
   };
+  const files = [], blobs = [];
   for (const c of invs) {
     const cv = await drawInvite(c);
     const blob = await canvasBlob(cv);
-    const url = URL.createObjectURL(blob);
-    const box = sheet.querySelector(`.inv[data-id="${c.codigo}"]`); if (!box) return;
-    box.innerHTML = `<img alt="Convite ${pad3(c.numero)}" src="${url}">
-      <div class="meta"><b>Nº ${pad3(c.numero)}</b> · ${esc(c.nome)}<br><span class="muted">${esc(tipoNome(c.tipo))} · ${fmtCode(c.codigo)}</span></div>
-      <div class="btns" style="margin-top:6px"><button class="btn wa sm" data-sh>Enviar imagem</button><button class="btn ghost sm" data-dl>Baixar</button><button class="btn ghost sm" data-cp>Copiar</button></div>`;
     const file = new File([blob], fileName(c), { type: "image/png" });
+    files.push(file); blobs.push(blob);
+    const box = sheet.querySelector(`.inv[data-id="${c.codigo}"]`); if (!box) return;
+    box.innerHTML = `<img alt="Convite ${pad3(c.numero)}" src="${URL.createObjectURL(blob)}">
+      <div class="meta"><b>Nº ${pad3(c.numero)}</b> · ${esc(c.nome)}<br><span class="muted">${esc(tipoNome(c.tipo))} · ${fmtCode(c.codigo)}</span></div>
+      <div class="btns" style="margin-top:6px"><button class="btn ghost sm" data-sh>Enviar só este</button><button class="btn ghost sm" data-dl>Baixar</button><button class="btn ghost sm" data-cp>Copiar</button></div>`;
     box.querySelector("[data-sh]").onclick = async () => {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try { await navigator.share({ files: [file] }); } catch (e) { if (e && e.name !== "AbortError") toast("Não foi possível compartilhar. Use Baixar."); }
@@ -697,6 +702,25 @@ async function openPedido(invs, opts = {}) {
       try { await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]); toast("Imagem copiada – cole na conversa do WhatsApp Web."); }
       catch { toast("Este navegador não permite copiar imagem. Use Baixar."); }
     };
+  }
+  const btn = sheet.querySelector("#btnShareAll"); if (!btn) return;
+  const canShareAll = !!(navigator.canShare && navigator.canShare({ files }));
+  btn.disabled = false;
+  if (canShareAll) {
+    btn.textContent = plural ? `Enviar ${files.length} convites pelo WhatsApp` : "Enviar convite pelo WhatsApp";
+    btn.onclick = async () => {
+      try { await navigator.share({ files, text: msg }); }
+      catch (e) {
+        if (e && e.name === "AbortError") return;
+        try { await navigator.share({ files }); toast("Imagens enviadas. Use ‘Copiar mensagem’ para mandar o texto."); }
+        catch (e2) { if (!e2 || e2.name !== "AbortError") toast("Não foi possível compartilhar daqui. Use as outras formas de enviar."); }
+      }
+    };
+  } else {
+    // computador: baixa as imagens e abre a conversa com a mensagem
+    btn.textContent = "Baixar convites e abrir o WhatsApp";
+    $("shareHint").innerHTML = "Neste aparelho não dá para compartilhar direto. As imagens serão baixadas e a conversa será aberta com a mensagem – é só anexar as imagens.";
+    btn.onclick = () => { files.forEach((f, i) => setTimeout(() => downloadBlob(blobs[i], f.name), i * 400)); window.open(waHref, "_blank", "noopener"); };
   }
 }
 
