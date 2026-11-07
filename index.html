@@ -257,7 +257,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
       <div class="list" id="evtInfo"></div>
       <div class="btns"><button class="btn ghost" id="btnPrevia">Ver prévia do convite</button><button class="btn ghost" id="btnSair">Sair / trocar PIN</button></div>
       <p class="small muted" id="roleInfo" style="margin:10px 0 0"></p>
-      <p class="small muted" style="margin:4px 0 0">Versão do aplicativo: 3</p>
+      <p class="small muted" style="margin:4px 0 0">Versão do aplicativo: 5</p>
     </div>
     <div class="card">
       <h2>Como usar no dia</h2>
@@ -278,7 +278,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
   <p class="muted small" style="margin:6px 0 16px">Digite o PIN que a coordenação passou para você.</p>
   <input class="t" id="pinInput" type="password" inputmode="numeric" placeholder="PIN" style="text-align:center;font-size:24px;letter-spacing:6px">
   <button class="btn red block" id="loginBtn" style="margin-top:12px">Entrar</button>
-  <p class="small muted" style="margin:14px 0 0">Versão 3</p>
+  <p class="small muted" style="margin:14px 0 0">Versão 5</p>
   <p class="small" id="loginMsg" style="color:var(--red);min-height:1.2em;margin:10px 0 0"></p>
 </form></div>
 <!-- Modal de convites -->
@@ -671,7 +671,7 @@ async function openPedido(invs, opts = {}) {
     <h3>${opts.title || (plural ? invs.length + " convites gerados" : "Convite gerado")}</h3>
     <p class="muted small" style="margin:4px 0 12px">${esc(first.comprador || first.nome)} · ${esc(fmtFone(first.telefone))}</p>
     <button class="btn wa block" id="btnShareAll" disabled style="padding:16px;font-size:17px">Preparando ${plural ? "convites" : "convite"}…</button>
-    <p class="small muted" id="shareHint" style="margin:8px 2px 0">Toque, escolha o <b>WhatsApp</b> e a conversa de ${esc((first.comprador || first.nome).split(" ")[0])}. ${plural ? "As imagens e a mensagem vão juntas." : "A imagem e a mensagem vão juntas."}</p>
+    <p class="small muted" id="shareHint" style="margin:8px 2px 0">Toque, escolha o <b>WhatsApp</b> e a conversa de ${esc((first.comprador || first.nome).split(" ")[0])}. ${plural ? "As imagens e a mensagem vão juntas." : "A imagem e a mensagem vão juntas."} Se a mensagem não aparecer, é só <b>colar</b> no campo de legenda – ela já fica copiada.</p>
     <details style="margin-top:12px"><summary class="small" style="cursor:pointer;color:var(--navy);font-weight:600">Outras formas de enviar</summary>
       <div class="btns"><a class="btn ghost sm" href="${esc(waHref)}" target="_blank" rel="noopener">Abrir conversa só com a mensagem</a><button class="btn ghost sm" data-act="copytxt">Copiar mensagem</button></div>
       <p class="small muted" style="margin:8px 0 0">Cada convite abaixo também tem botões para enviar, baixar ou copiar a imagem separadamente.</p>
@@ -709,6 +709,7 @@ async function openPedido(invs, opts = {}) {
   if (canShareAll) {
     btn.textContent = plural ? `Enviar ${files.length} convites pelo WhatsApp` : "Enviar convite pelo WhatsApp";
     btn.onclick = async () => {
+      try { navigator.clipboard && navigator.clipboard.writeText(msg).catch(() => {}); } catch {}
       try { await navigator.share({ files, text: msg }); }
       catch (e) {
         if (e && e.name === "AbortError") return;
@@ -720,7 +721,7 @@ async function openPedido(invs, opts = {}) {
     // computador: baixa as imagens e abre a conversa com a mensagem
     btn.textContent = "Baixar convites e abrir o WhatsApp";
     $("shareHint").innerHTML = "Neste aparelho não dá para compartilhar direto. As imagens serão baixadas e a conversa será aberta com a mensagem – é só anexar as imagens.";
-    btn.onclick = () => { files.forEach((f, i) => setTimeout(() => downloadBlob(blobs[i], f.name), i * 400)); window.open(waHref, "_blank", "noopener"); };
+    btn.onclick = () => { try { navigator.clipboard && navigator.clipboard.writeText(msg).catch(() => {}); } catch {} files.forEach((f, i) => setTimeout(() => downloadBlob(blobs[i], f.name), i * 400)); window.open(waHref, "_blank", "noopener"); };
   }
 }
 
@@ -910,9 +911,10 @@ async function processCode(code, via) {
     const who = d.nome, det = `Nº ${pad3(d.numero)} · ${tipoNome(d.tipo)}`;
     if (j.resultado === "cancelado") return showResult("bad", "Convite cancelado", who, det + " — este convite foi cancelado. Encaminhe para a coordenação.");
     if (j.resultado === "usado") {
-      const mine = sessionCheckins.get(code);
-      if (mine && Date.now() - mine < 3 * 60 * 1000) return showResult("ok", "Entrada já registrada", who, det + " — registrada agora há pouco neste aparelho.");
-      return showResult("warn", "Convite já utilizado", who, `${det}<br>Entrada registrada às <b>${esc(hhmm(d.usadoEm))}</b>${d.usadoPonto ? " em " + esc(d.usadoPonto) : ""}.`);
+      const mins = d.usadoEm ? Math.max(0, Math.round((Date.now() - new Date(d.usadoEm).getTime()) / 60000)) : null;
+      const ha = mins === null ? "" : mins < 1 ? " (agora há pouco)" : ` (há ${mins} min)`;
+      const aqui = sessionCheckins.has(code) ? " neste aparelho" : (d.usadoPonto ? " em " + esc(d.usadoPonto) : "");
+      return showResult("warn", "Convite já utilizado", who, `${det}<br>Entrada registrada às <b>${esc(hhmm(d.usadoEm))}</b>${ha}${aqui}.<br>Não libere a entrada sem falar com a coordenação.`);
     }
     sessionCheckins.set(code, Date.now()); renderAll();
     return showResult("ok", "Entrada liberada", who, det + (d.comprador && d.comprador !== d.nome ? ` · compra de ${esc(d.comprador)}` : ""));
