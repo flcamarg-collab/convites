@@ -257,7 +257,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
       <div class="list" id="evtInfo"></div>
       <div class="btns"><button class="btn ghost" id="btnPrevia">Ver prévia do convite</button><button class="btn ghost" id="btnSair">Sair / trocar PIN</button></div>
       <p class="small muted" id="roleInfo" style="margin:10px 0 0"></p>
-      <p class="small muted" style="margin:4px 0 0">Versão do aplicativo: 5</p>
+      <p class="small muted" style="margin:4px 0 0">Versão do aplicativo: 6</p>
     </div>
     <div class="card">
       <h2>Como usar no dia</h2>
@@ -278,7 +278,7 @@ input.t:focus,textarea.t:focus{outline:2px solid var(--gold);border-color:var(--
   <p class="muted small" style="margin:6px 0 16px">Digite o PIN que a coordenação passou para você.</p>
   <input class="t" id="pinInput" type="password" inputmode="numeric" placeholder="PIN" style="text-align:center;font-size:24px;letter-spacing:6px">
   <button class="btn red block" id="loginBtn" style="margin-top:12px">Entrar</button>
-  <p class="small muted" style="margin:14px 0 0">Versão 5</p>
+  <p class="small muted" style="margin:14px 0 0">Versão 6</p>
   <p class="small" id="loginMsg" style="color:var(--red);min-height:1.2em;margin:10px 0 0"></p>
 </form></div>
 <!-- Modal de convites -->
@@ -309,6 +309,7 @@ const TIPOS = [
   { id: "adulto",    nome: "Adulto",                curto: "ADULTO" },
   { id: "crianca68", nome: "Criança de 6 a 8 anos", curto: "CRIANÇA 6 A 8 ANOS" },
   { id: "crianca05", nome: "Criança de 0 a 5 anos", curto: "CRIANÇA ATÉ 5 ANOS · GRATUITO" },
+  { id: "especial",  nome: "Convidado especial",    curto: "CONVIDADO ESPECIAL · CORTESIA" },
 ];
 const ALPHA = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const QR_PREFIX = "STT-CONVITE:";
@@ -318,7 +319,7 @@ let pin = "", papel = null;
 let cfg = { ...DEFAULT_CFG };
 const convites = new Map();            // codigo -> dados
 let loaded = false;
-const qty = { adulto: 0, crianca68: 0, crianca05: 0 };
+const qty = { adulto: 0, crianca68: 0, crianca05: 0, especial: 0 };
 const bannerImg = new Image(); bannerImg.src = BANNER_SRC;
 const sessionCheckins = new Map();
 
@@ -475,7 +476,7 @@ function renderQty() {
   for (const t of TIPOS) {
     $("q-" + t.id).textContent = qty[t.id];
     const v = valorTipo(t.id);
-    $("pv-" + t.id).textContent = v ? brl(v) : "Não paga";
+    $("pv-" + t.id).textContent = v ? brl(v) : t.id === "especial" ? "Cortesia · gratuito" : "Não paga";
     total += v * qty[t.id];
   }
   $("fTotal").textContent = brl(total);
@@ -492,10 +493,12 @@ function renderNames() {
 $("btnGerar").addEventListener("click", async () => {
   const nome = $("fNome").value.trim();
   const fone = $("fFone").value.trim();
-  const n = qty.adulto + qty.crianca68 + qty.crianca05;
+  const n = TIPOS.reduce((s, t) => s + qty[t.id], 0);
+  const soEspecial = n > 0 && qty.especial === n;
   const total = TIPOS.reduce((s, t) => s + valorTipo(t.id) * qty[t.id], 0);
   if (!nome) return toast("Informe o nome do comprador.");
-  if (digits(fone).length < 10) return toast("Informe o WhatsApp com DDD.");
+  if (!soEspecial && digits(fone).length < 10) return toast("Informe o WhatsApp com DDD.");
+  if (soEspecial && fone && digits(fone).length < 10) return toast("WhatsApp incompleto – informe com DDD ou deixe em branco.");
   if (!n) return toast("Escolha pelo menos 1 convite.");
   if (total > 0 && !$("fPago").checked) return toast("Confirme o recebimento do pagamento.");
   const s = stats();
@@ -509,9 +512,10 @@ $("btnGerar").addEventListener("click", async () => {
   try {
     const j = await api("create", { comprador: nome, telefone: digits(fone), itens, obs: $("fObs").value.trim() });
     const created = j.convites.map(normalize);
+    if (qty.especial && !created.some(c => c.tipo === "especial")) toast("Atenção: o servidor da planilha ainda não conhece o tipo ‘Convidado especial’. Atualize o Code.gs e cancele estes convites.", 9000);
     for (const c of created) convites.set(c.codigo, c);
     $("fNome").value = ""; $("fFone").value = ""; $("fObs").value = ""; $("fPago").checked = false;
-    qty.adulto = qty.crianca68 = qty.crianca05 = 0; renderNames(); renderAll();
+    for (const t of TIPOS) qty[t.id] = 0; renderNames(); renderAll();
     openPedido(created);
   } catch (e) {
     toast(e.message, 4000);
@@ -525,7 +529,9 @@ function waMessage(invs) {
   const linhas = invs.map(c => `• Nº ${pad3(c.numero)} – ${c.nome} (${tipoNome(c.tipo)}) – código ${fmtCode(c.codigo)}`).join("\n");
   const plural = invs.length > 1;
   return `Olá, ${primeiroNome}!\n\n` +
-    `${plural ? "Seus convites estão confirmados" : "Seu convite está confirmado"} para o *${cfg.nome}*.\n\n` +
+    (invs.every(c => c.tipo === "especial")
+      ? `É uma alegria ter ${plural ? "vocês" : "você"} como ${plural ? "nossos convidados especiais" : "nosso(a) convidado(a) especial"} no *${cfg.nome}*.\n\n`
+      : `${plural ? "Seus convites estão confirmados" : "Seu convite está confirmado"} para o *${cfg.nome}*.\n\n`) +
     `*Data:* ${cfg.dia}, ${cfg.data}\n*Horário:* ${cfg.hora}\n*Local:* ${cfg.local}\n\n` +
     `*${plural ? "Convites" : "Convite"}:*\n${linhas}\n\n` +
     `${plural ? "Seguem os convites" : "Segue o convite"} com QR code. ` +
@@ -580,7 +586,9 @@ async function drawInvite(c) {
   let y = bh + 6;
   ctx.fillStyle = "#B5121B"; roundRect(ctx, 250, y, 580, 84, 16); ctx.fill();
   ctx.fillStyle = "#fff"; ctx.font = `800 52px "${C}"`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText("CONVITE", W / 2, y + 44);
+  const esp = c.tipo === "especial";
+  if (esp) { ctx.fillStyle = "#B5121B"; roundRect(ctx, 190, y, 700, 84, 16); ctx.fill(); ctx.fillStyle = "#fff"; }
+  ctx.fillText(esp ? "CONVITE ESPECIAL" : "CONVITE", W / 2, y + 44);
   y += 84 + 30;
   const boxes = [
     { k: "DATA", v: [String(cfg.data).toUpperCase(), String(cfg.dia).toUpperCase()] },
@@ -606,7 +614,7 @@ async function drawInvite(c) {
     });
   });
   y += bH + 40;
-  ctx.fillStyle = "#6b6f7d"; ctx.font = `italic 500 34px Lora`; ctx.fillText("Convidado(a)", W / 2, y); y += 54;
+  ctx.fillStyle = "#6b6f7d"; ctx.font = `italic 500 34px Lora`; ctx.fillText(esp ? "Nosso(a) convidado(a) especial" : "Convidado(a)", W / 2, y); y += 54;
   ctx.fillStyle = "#1B2A5E";
   let fs = 74; const nome = String(c.nome || "").toUpperCase();
   do { ctx.font = `800 ${fs}px "${C}"`; fs -= 2; } while (ctx.measureText(nome).width > 960 && fs > 46);
@@ -615,7 +623,7 @@ async function drawInvite(c) {
   y += (nl.length - 1) * (fs + 6) + 58;
   ctx.font = `700 30px "${C}"`;
   const tt = tipoCurto(c.tipo); const tw = ctx.measureText(tt).width + 56;
-  ctx.fillStyle = c.tipo === "adulto" ? "#1B2A5E" : c.tipo === "crianca68" ? "#E06A1B" : "#2E7D32";
+  ctx.fillStyle = c.tipo === "adulto" ? "#1B2A5E" : c.tipo === "crianca68" ? "#E06A1B" : esp ? "#C08A1E" : "#2E7D32";
   roundRect(ctx, (W - tw) / 2, y - 26, tw, 52, 26); ctx.fill();
   ctx.fillStyle = "#fff"; ctx.fillText(tt, W / 2, y + 1);
   y += 62;
@@ -636,7 +644,7 @@ async function drawInvite(c) {
   y += 52;
   ctx.fillStyle = "#3a3f52"; ctx.font = `600 30px "${C}"`;
   ctx.fillText("Apresente este QR code na entrada.", W / 2, y); y += 40;
-  ctx.fillText("Válido para 1 pessoa · uso único · bebidas à parte", W / 2, y);
+  ctx.fillText(esp ? "Válido para 1 pessoa · uso único" : "Válido para 1 pessoa · uso único · bebidas à parte", W / 2, y);
   const fh = 120; ctx.fillStyle = "#1B2A5E"; ctx.fillRect(0, H - fh, W, fh);
   ctx.fillStyle = "#E3A72F"; ctx.fillRect(0, H - fh, W, 6);
   ctx.fillStyle = "#fff"; ctx.font = `800 36px "${C}"`; ctx.fillText(String(cfg.comunidade).toUpperCase(), W / 2, H - fh / 2 - 12);
@@ -917,7 +925,7 @@ async function processCode(code, via) {
       return showResult("warn", "Convite já utilizado", who, `${det}<br>Entrada registrada às <b>${esc(hhmm(d.usadoEm))}</b>${ha}${aqui}.<br>Não libere a entrada sem falar com a coordenação.`);
     }
     sessionCheckins.set(code, Date.now()); renderAll();
-    return showResult("ok", "Entrada liberada", who, det + (d.comprador && d.comprador !== d.nome ? ` · compra de ${esc(d.comprador)}` : ""));
+    return showResult("ok", "Entrada liberada", who, det + (d.tipo !== "especial" && d.comprador && d.comprador !== d.nome ? ` · compra de ${esc(d.comprador)}` : ""));
   } finally { busy = false; }
 }
 
@@ -963,7 +971,7 @@ $("acLista").addEventListener("click", e => { const b = e.target.closest("[data-
 /* ---------- Evento ---------- */
 function renderEvento() {
   const rows = [["Evento", cfg.nome], ["Data", `${cfg.dia}, ${cfg.data}`], ["Horário", cfg.hora], ["Local", cfg.local], ["Comunidade", cfg.comunidade],
-    ["Capacidade", cfg.capacidade + " pessoas"], ["Adulto", brl(cfg.valorAdulto)], ["Criança 6 a 8 anos", brl(cfg.valorCrianca)], ["Criança 0 a 5 anos", "Não paga"], ["Pagamento", cfg.pix]];
+    ["Capacidade", cfg.capacidade + " pessoas"], ["Adulto", brl(cfg.valorAdulto)], ["Criança 6 a 8 anos", brl(cfg.valorCrianca)], ["Criança 0 a 5 anos", "Não paga"], ["Convidado especial", "Cortesia"], ["Pagamento", cfg.pix]];
   $("evtInfo").innerHTML = rows.map(([k, v]) => `<div class="item" style="grid-template-columns:150px 1fr"><span class="muted small">${esc(k)}</span><b style="font-weight:600">${esc(v)}</b></div>`).join("");
 }
 $("btnPrevia").addEventListener("click", () => {
